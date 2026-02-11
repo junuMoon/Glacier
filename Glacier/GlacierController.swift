@@ -46,11 +46,11 @@ final class GlacierController {
         separator.autosaveName = "GlacierSep"
 
         if let button = glacierIcon.button {
+            let config = NSImage.SymbolConfiguration(pointSize: 6, weight: .regular)
             button.image = NSImage(
                 systemSymbolName: "circle.fill",
                 accessibilityDescription: "Glacier"
-            )
-            button.image?.size = NSSize(width: 14, height: 14)
+            )?.withSymbolConfiguration(config)
             button.target = self
             button.action = #selector(iconClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -58,7 +58,10 @@ final class GlacierController {
 
         separator.button?.cell?.isEnabled = false
 
-        requestAccessibilityIfNeeded()
+        if !AXIsProcessTrusted() && !UserDefaults.standard.bool(forKey: "AccessibilityPrompted") {
+            UserDefaults.standard.set(true, forKey: "AccessibilityPrompted")
+            requestAccessibilityIfNeeded()
+        }
 
         hide()
     }
