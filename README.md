@@ -48,9 +48,21 @@ Glacier places invisible separator items in your menu bar. By expanding them, it
 
 ## Install
 
+### Homebrew
+
+```bash
+brew tap junuMoon/tap
+brew install --cask --no-quarantine glacier
+```
+
 ### Download
 
 Download the latest `.zip` from [Releases](../../releases), unzip, and drag `Glacier.app` to `/Applications`.
+
+Since the app is not notarized, you need to remove the quarantine flag:
+```bash
+xattr -cr /Applications/Glacier.app
+```
 
 ### Build from Source
 

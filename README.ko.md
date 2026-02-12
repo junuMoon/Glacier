@@ -48,9 +48,21 @@ Glacier는 메뉴바에 보이지 않는 구분자를 배치합니다. 구분자
 
 ## 설치
 
+### Homebrew
+
+```bash
+brew tap junuMoon/tap
+brew install --cask --no-quarantine glacier
+```
+
 ### 다운로드
 
 [Releases](../../releases)에서 최신 `.zip`을 다운로드하고, 압축 해제 후 `Glacier.app`을 `/Applications`로 드래그하세요.
+
+공증되지 않은 앱이므로 격리 플래그를 제거해야 합니다:
+```bash
+xattr -cr /Applications/Glacier.app
+```
 
 ### 소스에서 빌드
 
