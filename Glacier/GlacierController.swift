@@ -13,12 +13,15 @@ final class GlacierController {
 
     // MARK: - State
 
-    private var isHidden = true
+    private enum State { case allHidden, partialShow, showAll }
+    private var state: State = .allHidden
 
     // MARK: - NSStatusItems
 
-    private let glacierIcon: NSStatusItem
-    private let separator: NSStatusItem
+    private let glacierIcon: NSStatusItem  // ● user-facing icon
+    private let sep1: NSStatusItem         // separator just left of ●
+    private let diamond: NSStatusItem      // ◆ always-hidden boundary marker
+    private let sep2: NSStatusItem         // separator just left of ◆
 
     // MARK: - Event Monitors
 
@@ -30,7 +33,7 @@ final class GlacierController {
     init() {
         // Set preferred positions BEFORE creating status items
         // so macOS places them in the correct order.
-        // Position 0 = rightmost, 1 = just to its left.
+        // Position 0 = rightmost; higher numbers = further left.
         let ud = UserDefaults.standard
         if ud.object(forKey: "NSStatusItem Preferred Position GlacierIcon") == nil {
             ud.set(0, forKey: "NSStatusItem Preferred Position GlacierIcon")
@@ -38,13 +41,26 @@ final class GlacierController {
         if ud.object(forKey: "NSStatusItem Preferred Position GlacierSep") == nil {
             ud.set(1, forKey: "NSStatusItem Preferred Position GlacierSep")
         }
+        if ud.object(forKey: "NSStatusItem Preferred Position GlacierDiamond") == nil {
+            ud.set(2, forKey: "NSStatusItem Preferred Position GlacierDiamond")
+        }
+        if ud.object(forKey: "NSStatusItem Preferred Position GlacierSep2") == nil {
+            ud.set(3, forKey: "NSStatusItem Preferred Position GlacierSep2")
+        }
 
         glacierIcon = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         glacierIcon.autosaveName = "GlacierIcon"
 
-        separator = NSStatusBar.system.statusItem(withLength: 0)
-        separator.autosaveName = "GlacierSep"
+        sep1 = NSStatusBar.system.statusItem(withLength: 0)
+        sep1.autosaveName = "GlacierSep"
 
+        diamond = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        diamond.autosaveName = "GlacierDiamond"
+
+        sep2 = NSStatusBar.system.statusItem(withLength: 0)
+        sep2.autosaveName = "GlacierSep2"
+
+        // ● icon button
         if let button = glacierIcon.button {
             let config = NSImage.SymbolConfiguration(pointSize: 6, weight: .regular)
             button.image = NSImage(
@@ -56,43 +72,70 @@ final class GlacierController {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
-        separator.button?.cell?.isEnabled = false
+        // ◆ diamond marker (non-clickable)
+        if let button = diamond.button {
+            let config = NSImage.SymbolConfiguration(pointSize: 6, weight: .regular)
+            button.image = NSImage(
+                systemSymbolName: "diamond.fill",
+                accessibilityDescription: "Glacier Always Hidden"
+            )?.withSymbolConfiguration(config)
+            button.cell?.isEnabled = false
+        }
+
+        sep1.button?.cell?.isEnabled = false
+        sep2.button?.cell?.isEnabled = false
 
         if !AXIsProcessTrusted() && !UserDefaults.standard.bool(forKey: "AccessibilityPrompted") {
             UserDefaults.standard.set(true, forKey: "AccessibilityPrompted")
             requestAccessibilityIfNeeded()
         }
 
-        hide()
+        hideAll()
     }
 
-    // MARK: - Toggle
+    // MARK: - State Transitions
 
-    private func toggle() {
-        if isHidden { show() } else { hide() }
+    private func hideAll() {
+        state = .allHidden
+
+        let ud = UserDefaults.standard
+        let iconPos = ud.double(forKey: "NSStatusItem Preferred Position GlacierIcon")
+        let newSep1Pos = iconPos + 1
+        ud.set(newSep1Pos, forKey: "NSStatusItem Preferred Position GlacierSep")
+
+        // isVisible toggle forces macOS to recalculate position
+        sep1.isVisible = false
+        ud.set(newSep1Pos, forKey: "NSStatusItem Preferred Position GlacierSep")
+        sep1.isVisible = true
+
+        sep1.length = 10_000
+        // sep2 doesn't matter — sep1 already pushes everything off-screen
+        stopEventMonitors()
     }
 
-    private func show() {
-        isHidden = false
-        separator.length = NSStatusItem.variableLength
+    private func showPartial() {
+        state = .partialShow
+
+        sep1.length = NSStatusItem.variableLength
+
+        let ud = UserDefaults.standard
+        let diamondPos = ud.double(forKey: "NSStatusItem Preferred Position GlacierDiamond")
+        let newSep2Pos = diamondPos + 1
+        ud.set(newSep2Pos, forKey: "NSStatusItem Preferred Position GlacierSep2")
+
+        sep2.isVisible = false
+        ud.set(newSep2Pos, forKey: "NSStatusItem Preferred Position GlacierSep2")
+        sep2.isVisible = true
+
+        sep2.length = 10_000
         startEventMonitors()
     }
 
-    private func hide() {
-        isHidden = true
-        let ud = UserDefaults.standard
-        let iconPos = ud.double(forKey: "NSStatusItem Preferred Position GlacierIcon")
-        let newSepPos = iconPos + 1
-        ud.set(newSepPos, forKey: "NSStatusItem Preferred Position GlacierSep")
-
-        // isVisible 토글로 macOS에 위치 재계산 강제
-        // isVisible=false 시 macOS가 preferredPosition을 삭제하므로 복원 필요
-        separator.isVisible = false
-        ud.set(newSepPos, forKey: "NSStatusItem Preferred Position GlacierSep")
-        separator.isVisible = true
-
-        separator.length = 10_000
-        stopEventMonitors()
+    private func showAll() {
+        state = .showAll
+        sep1.length = NSStatusItem.variableLength
+        sep2.length = NSStatusItem.variableLength
+        startEventMonitors()
     }
 
     // MARK: - Click Handling
@@ -101,8 +144,15 @@ final class GlacierController {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp {
             showContextMenu()
+        } else if event.modifierFlags.contains(.option) {
+            // Option+click: showAll ↔ allHidden toggle
+            if state == .showAll { hideAll() } else { showAll() }
         } else {
-            toggle()
+            // Normal click: allHidden ↔ partialShow toggle
+            switch state {
+            case .allHidden: showPartial()
+            case .partialShow, .showAll: hideAll()
+            }
         }
     }
 
@@ -127,14 +177,14 @@ final class GlacierController {
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
             [weak self] _ in
             MainActor.assumeIsolated {
-                self?.hide()
+                self?.hideAll()
             }
         }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
             [weak self] event in
             if event.window?.className.contains("NSStatusBarWindow") == false {
                 MainActor.assumeIsolated {
-                    self?.hide()
+                    self?.hideAll()
                 }
             }
             return event
