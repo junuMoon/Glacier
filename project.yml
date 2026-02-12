@@ -21,3 +21,4 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         PRODUCT_NAME: Glacier
         MARKETING_VERSION: "0.1.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
