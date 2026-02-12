@@ -59,11 +59,6 @@ brew install --cask --no-quarantine glacier
 
 Download the latest `.zip` from [Releases](../../releases), unzip, and drag `Glacier.app` to `/Applications`.
 
-Since the app is not notarized, you need to remove the quarantine flag:
-```bash
-xattr -cr /Applications/Glacier.app
-```
-
 ### Build from Source
 
 Requires Xcode 16+ and macOS 15+.

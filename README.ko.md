@@ -59,11 +59,6 @@ brew install --cask --no-quarantine glacier
 
 [Releases](../../releases)에서 최신 `.zip`을 다운로드하고, 압축 해제 후 `Glacier.app`을 `/Applications`로 드래그하세요.
 
-공증되지 않은 앱이므로 격리 플래그를 제거해야 합니다:
-```bash
-xattr -cr /Applications/Glacier.app
-```
-
 ### 소스에서 빌드
 
 Xcode 16+ 및 macOS 15+ 필요.
