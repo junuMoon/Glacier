@@ -175,13 +175,16 @@ final class GlacierController {
     private func startEventMonitors() {
         stopEventMonitors()
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
-            [weak self] _ in
+            [weak self] event in
+            // Cmd+click is for rearranging menu bar items — don't hide
+            if event.modifierFlags.contains(.command) { return }
             MainActor.assumeIsolated {
                 self?.hideAll()
             }
         }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
             [weak self] event in
+            if event.modifierFlags.contains(.command) { return event }
             if event.window?.className.contains("NSStatusBarWindow") == false {
                 MainActor.assumeIsolated {
                     self?.hideAll()
