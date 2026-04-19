@@ -6,7 +6,7 @@
 
 # Glacier
 
-A macOS menu bar manager that hides menu bar items — in ~200 lines of Swift.
+A compact macOS menu bar manager that hides menu bar items in a small Swift codebase.
 
 [Ice](https://github.com/jordanbaird/Ice) is great, but it's 30,000+ lines with its own settings window, update framework, and accessibility layer. Glacier is a small menu bar app focused on the core job: hide, show, done.
 
@@ -17,7 +17,7 @@ A macOS menu bar manager that hides menu bar items — in ~200 lines of Swift.
 
 | | Glacier | Ice |
 |---|---------|-----|
-| Lines of code | ~200 | 30,000+ |
+| Lines of code | Small (core Swift sources) | 30,000+ |
 | Dependencies | 0 | Multiple |
 | Accessibility layer | None | Included |
 | App size | A few MB | ~15 MB |
@@ -63,7 +63,8 @@ Use **Cmd + Drag** to rearrange menu bar items into three sections:
 | **Click ●** | Show / hide the hidden section |
 | **Click ◆** | When visible, show / hide items left of ◆ |
 | **Option + Click ● or ◆** | Show / hide the always-hidden section |
-| **Click below the menu bar / Esc** | Hide the open sections |
+| **Esc** | Hide open sections when Glacier has keyboard focus (menu bar utility; otherwise click **●** or use the 60 s timeout) |
+| **60 s idle** | While **hidden** or **all-open** (not editing), sections collapse automatically; the timer resets when you switch between those two |
 | **Right-click ● or ◆** | Usage / Edit Layout / Reset Layout / Quit |
 
 ## Current Notes

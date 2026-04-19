@@ -22,3 +22,28 @@ targets:
         PRODUCT_NAME: Glacier
         MARKETING_VERSION: "0.1.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_TESTABILITY: true
+
+  GlacierTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: GlacierTests
+    dependencies:
+      - target: Glacier
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.glacier.app.tests
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        GENERATE_INFOPLIST_FILE: true
+        CODE_SIGN_IDENTITY: "-"
+
+schemes:
+  Glacier:
+    build:
+      targets:
+        Glacier: all
+    test:
+      targets:
+        - GlacierTests

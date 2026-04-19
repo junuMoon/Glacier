@@ -4,6 +4,7 @@ import AppKit
 final class MenuBarLayoutController {
 
     private enum Layout {
+        /// Must be large enough to push items off-screen; values beyond ~10k have been the stable default.
         static let hiddenLength: CGFloat = 10_000
         static let closedSymbol = "circle.fill"
         static let hiddenOpenSymbol = "circle.lefthalf.filled"
@@ -38,6 +39,29 @@ final class MenuBarLayoutController {
         if ud.object(forKey: DefaultsKey.secondSeparatorPosition) == nil {
             ud.set(3, forKey: DefaultsKey.secondSeparatorPosition)
         }
+        sanitizeStoredPositionsIfNeeded()
+    }
+
+    /// Guard against corrupted UserDefaults values from OS upgrades or manual edits.
+    private static func sanitizeStoredPositionsIfNeeded() {
+        let ud = UserDefaults.standard
+        let defaults: [(String, Double)] = [
+            (DefaultsKey.iconPosition, 0),
+            (DefaultsKey.separatorPosition, 1),
+            (DefaultsKey.diamondPosition, 2),
+            (DefaultsKey.secondSeparatorPosition, 3),
+        ]
+        for (key, fallback) in defaults {
+            let raw = ud.double(forKey: key)
+            if raw.isNaN || raw.isInfinite || raw < 0 || raw > 50_000 {
+                ud.set(fallback, forKey: key)
+            }
+        }
+    }
+
+    private static func clampedStatusPosition(_ raw: Double, fallback: Double) -> Double {
+        if raw.isNaN || raw.isInfinite || raw < 0 { return fallback }
+        return min(raw, 50_000)
     }
 
     init(glacierIcon: NSStatusItem, sep1: NSStatusItem, diamond: NSStatusItem, sep2: NSStatusItem) {
@@ -84,14 +108,18 @@ final class MenuBarLayoutController {
 
     private func applyClosedLayout() {
         let ud = UserDefaults.standard
-        let iconPos = ud.double(forKey: DefaultsKey.iconPosition)
+        let iconPos = Self.clampedStatusPosition(ud.double(forKey: DefaultsKey.iconPosition), fallback: 0)
+        // Reserve the slot immediately after ● for sep1. After Cmd+Drag, `iconPos` from UserDefaults is fresh;
+        // `EventMonitorController` re-applies this layout so we rewrite the separator slot from the new ● index.
         let newSep1Pos = iconPos + 1
         ud.set(newSep1Pos, forKey: DefaultsKey.separatorPosition)
 
         // Toggling visibility forces macOS to recalculate the separator position.
-        sep1.isVisible = false
-        ud.set(newSep1Pos, forKey: DefaultsKey.separatorPosition)
-        sep1.isVisible = true
+        runStatusBarLayoutTransaction {
+            sep1.isVisible = false
+            ud.set(newSep1Pos, forKey: DefaultsKey.separatorPosition)
+            sep1.isVisible = true
+        }
 
         sep1.length = Layout.hiddenLength
         sep2.length = NSStatusItem.variableLength
@@ -101,13 +129,15 @@ final class MenuBarLayoutController {
         sep1.length = NSStatusItem.variableLength
 
         let ud = UserDefaults.standard
-        let diamondPos = ud.double(forKey: DefaultsKey.diamondPosition)
+        let diamondPos = Self.clampedStatusPosition(ud.double(forKey: DefaultsKey.diamondPosition), fallback: 2)
         let newSep2Pos = diamondPos + 1
         ud.set(newSep2Pos, forKey: DefaultsKey.secondSeparatorPosition)
 
-        sep2.isVisible = false
-        ud.set(newSep2Pos, forKey: DefaultsKey.secondSeparatorPosition)
-        sep2.isVisible = true
+        runStatusBarLayoutTransaction {
+            sep2.isVisible = false
+            ud.set(newSep2Pos, forKey: DefaultsKey.secondSeparatorPosition)
+            sep2.isVisible = true
+        }
 
         sep2.length = Layout.hiddenLength
     }
@@ -117,11 +147,26 @@ final class MenuBarLayoutController {
         sep2.length = NSStatusItem.variableLength
     }
 
-    private func refreshPosition(for item: NSStatusItem, key: String) {
-        let position = UserDefaults.standard.double(forKey: key)
-        item.isVisible = false
-        UserDefaults.standard.set(position, forKey: key)
-        item.isVisible = true
+    private func refreshPosition(for item: NSStatusItem, key: String, fallback: Double = 0) {
+        let raw = UserDefaults.standard.double(forKey: key)
+        let position = Self.clampedStatusPosition(raw, fallback: fallback)
+        if position != raw {
+            UserDefaults.standard.set(position, forKey: key)
+        }
+        runStatusBarLayoutTransaction {
+            item.isVisible = false
+            UserDefaults.standard.set(position, forKey: key)
+            item.isVisible = true
+        }
+    }
+
+    /// Batches `isVisible` toggles so AppKit can coalesce status-bar relayout where possible.
+    private func runStatusBarLayoutTransaction(_ updates: () -> Void) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            updates()
+        }
     }
 
     private func updateIconAppearance(for state: GlacierState) {

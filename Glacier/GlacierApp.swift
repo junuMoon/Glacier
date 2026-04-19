@@ -15,4 +15,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller = GlacierController()
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        controller?.prepareForTermination()
+    }
 }

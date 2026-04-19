@@ -1,34 +1,80 @@
 import AppKit
 
-@MainActor
-final class EventMonitorController {
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
-    private var onInput: ((GlacierInput) -> Void)?
+// MARK: - NSEvent monitor handle
 
-    func update(for state: GlacierState, onInput: @escaping (GlacierInput) -> Void) {
-        self.onInput = onInput
+/// AppKit returns an untyped object from `addLocalMonitorForEvents` / `addGlobalMonitorForEvents`;
+/// we keep it in one place so call sites stay strongly typed.
+private struct NSEventMonitorHandle {
+    fileprivate let untypedToken: Any
 
-        stopEventMonitors()
-        guard state != .closed else { return }
-
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            guard let self else { return event }
-            guard event.keyCode == 53 else { return event } // Escape
-            self.onInput?(.escape)
+    @MainActor
+    static func installLocal(
+        matching mask: NSEvent.EventTypeMask,
+        handler: @escaping (NSEvent) -> NSEvent?
+    ) -> NSEventMonitorHandle? {
+        guard let token = NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler) else {
             return nil
         }
+        return NSEventMonitorHandle(untypedToken: token)
+    }
 
-        guard state != .editing else { return }
+    @MainActor
+    static func installGlobal(
+        matching mask: NSEvent.EventTypeMask,
+        handler: @escaping (NSEvent) -> Void
+    ) -> NSEventMonitorHandle? {
+        guard let token = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler) else {
+            return nil
+        }
+        return NSEventMonitorHandle(untypedToken: token)
+    }
 
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
-            [weak self] event in
-            guard let self else { return }
-            if event.modifierFlags.contains(.command) { return }
+    @MainActor
+    func remove() {
+        NSEvent.removeMonitor(untypedToken)
+    }
+}
 
-            MainActor.assumeIsolated {
-                if self.shouldDismiss(forGlobalMouseEvent: event) {
-                    self.onInput?(.dismiss)
+// MARK: - Controller
+
+@MainActor
+final class EventMonitorController {
+    /// Local only: `LSUIElement` apps rarely become key; Esc works when a Glacier window/menu has keyboard focus.
+    private var escapeKeyLocalMonitor: NSEventMonitorHandle?
+    private var commandLayoutSyncMonitor: NSEventMonitorHandle?
+    private var layoutSyncDebounce: DispatchWorkItem?
+
+    private var onInput: ((GlacierInput) -> Void)?
+    private var onLayoutSyncAfterCmdDrag: (() -> Void)?
+
+    func update(
+        for state: GlacierState,
+        onInput: @escaping (GlacierInput) -> Void,
+        onLayoutSyncAfterCmdDrag: (() -> Void)? = nil
+    ) {
+        self.onInput = onInput
+        self.onLayoutSyncAfterCmdDrag = onLayoutSyncAfterCmdDrag
+        stopEventMonitors()
+        layoutSyncDebounce?.cancel()
+        layoutSyncDebounce = nil
+
+        if state != .closed {
+            escapeKeyLocalMonitor = NSEventMonitorHandle.installLocal(matching: [.keyDown]) { [weak self] event in
+                guard let self else { return event }
+                guard event.keyCode == 53 else { return event } // Escape
+                guard !event.modifierFlags.contains(.command) else { return event }
+                self.onInput?(.escape)
+                return nil
+            }
+        }
+
+        if onLayoutSyncAfterCmdDrag != nil {
+            commandLayoutSyncMonitor = NSEventMonitorHandle.installGlobal(matching: [.leftMouseUp]) { [weak self] event in
+                guard event.modifierFlags.contains(.command) else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    guard self.isPointInMenuBar(NSEvent.mouseLocation) else { return }
+                    self.scheduleDebouncedLayoutSync()
                 }
             }
         }
@@ -36,24 +82,34 @@ final class EventMonitorController {
 
     func invalidate() {
         onInput = nil
+        onLayoutSyncAfterCmdDrag = nil
+        layoutSyncDebounce?.cancel()
+        layoutSyncDebounce = nil
         stopEventMonitors()
     }
 
     private func stopEventMonitors() {
-        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
-        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
-        globalMonitor = nil
-        localMonitor = nil
+        escapeKeyLocalMonitor?.remove()
+        commandLayoutSyncMonitor?.remove()
+        escapeKeyLocalMonitor = nil
+        commandLayoutSyncMonitor = nil
     }
 
-    private func shouldDismiss(forGlobalMouseEvent event: NSEvent) -> Bool {
-        !isPointInMenuBar(event.locationInWindow)
+    private func scheduleDebouncedLayoutSync() {
+        layoutSyncDebounce?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.layoutSyncDebounce = nil
+            self.onLayoutSyncAfterCmdDrag?()
+        }
+        layoutSyncDebounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: work)
     }
 
     private func isPointInMenuBar(_ point: NSPoint) -> Bool {
         for screen in NSScreen.screens where screen.frame.contains(point) {
             let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
-            guard menuBarHeight > 0 else { return false }
+            guard menuBarHeight > 0 else { continue }
 
             let menuBarRect = NSRect(
                 x: screen.frame.minX,
@@ -61,9 +117,8 @@ final class EventMonitorController {
                 width: screen.frame.width,
                 height: menuBarHeight
             )
-            return menuBarRect.contains(point)
+            if menuBarRect.contains(point) { return true }
         }
-
         return false
     }
 }
